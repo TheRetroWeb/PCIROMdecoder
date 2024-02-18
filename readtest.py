@@ -1,4 +1,4 @@
-VERSION = "0.1"
+VERSION = "0.2"
 
 #######################################
 # The Retro Web PCI ROM Decoder
@@ -10,10 +10,12 @@ import struct
 import sys
 import os
 
+print("\n*****************************************************************")
 print("The Retro Web PCI ROM Decoder (local test)")
 print("Version " + VERSION +"\n")
 print("Written primarily by Matthew Petry (fireTwoOneNine)")
-print("Special Thanks to the PCI ID Project (https://pci-ids.ucw.cz/)\n")
+print("Special Thanks to the PCI ID Project (https://pci-ids.ucw.cz/)")
+print("*****************************************************************\n")
 
 if len(sys.argv) == 1:
    print(sys.argv[0] + " <ROM file>")
@@ -29,6 +31,12 @@ VID = 4 # vendor ID
 DID = 6 # device ID
 CID = 15 # class type
 SCD = 14 # subclass type
+
+# PnP expansion internal offsets
+nextExp = 0x6
+PID = 0xA
+pMan = 0xE
+pDev = 0x10
 
 ######################################
 # Read ROM 8 bits (1 byte) at a time #
@@ -75,8 +83,19 @@ def readROM16(start, end, direction=0):
 ######################################
 # Read ROM as UTF-8 formatted string #
 ######################################    
-def readROMtext(start, end):
+def readROMtext(start, end, terminator=-1):
     return rawRead[start:end].decode("utf-8")
+
+######################################
+# Read ROM as text until terminator  #
+######################################  
+def readROMtextTerminated(start, terminator):
+    finalString = ""
+    i = start
+    while not (rawRead[i] == terminator):
+        finalString = finalString + chr(rawRead[i])
+        i = i + 1
+    return finalString
 
 ######################################
 # Attempt to read only "valid" text  #
@@ -105,23 +124,134 @@ def readROMsaneText(start, end):
 def hexStr2int(string):
     return int(string, 16)
 
+######################################
+# Brute-force search for "PCIR"      #
+# header in file                     #
+###################################### 
+def findPCIheader(startAddr):
+    i = startAddr
+    while (i < EOFile):
+        if (readROM16(i, i+3, 1) == ['5043', '4952']):
+            print("Found PCIR header at "+hex(i)+"!")
+            return i
+        i = i + 1    
+    else:
+        print("No PCI headers found!")
+        return -1
+
+######################################
+# Brute-force search for 0x55AA PnP  #
+# header in file                     #
+###################################### 
+def findPnPheader(startAddr):
+    i = startAddr
+    while (i < EOFile):
+        if (readROM16(i, i+1, 1) == ['55aa']):
+            print("Found PnP header at "+hex(i)+"!")
+            return i
+        i = i + 1    
+    else:
+        print("No PnP headers found!")
+        return -1
+
+######################################
+# Lookup Vendor and Device ID in     #
+# PCI ID database                    #
+###################################### 
+def getVendorDevice(hO):
+    # Parse for Vendor and Device names from PCI ID database
+    vendorID = readROM16(hO+VID, hO+VID+1)
+    deviceID = readROM16(hO+DID, hO+DID+1)
+    PCIids = open("pci.ids", 'r')
+    searchType = 0
+    for line in PCIids:
+        if searchType == 0:
+            if (line[0:4] == vendorID[0]):
+                vendorName = line[6:].rstrip()
+                searchType = 1
+        else:
+            if not ((line[0] == '\t') or (line[0] == '#')):
+                deviceName = "unknown"
+                break
+            if (line[1:5] == deviceID[0]):
+                deviceName = line[7:].rstrip()
+                break
+    PCIids.close()
+    return (vendorID, deviceID, vendorName, deviceName)        
+
+def getClassSubclass(hO):
+    # Read Class and Subclass IDs
+    classID = readROM8(hO+CID, hO+CID)
+    subclassID = readROM8(hO+SCD, hO+SCD)
+
+    # Parse for Class and Subclass names from PCI ID database
+    PCIclass = open("pciclasses.ids", 'r')
+    searchType = 0
+    for line in PCIclass:
+        if searchType == 0:
+            # print(line[2:4])
+            if (line[2:4] == classID[0]):
+                className = line[6:].rstrip()
+                searchType = 1
+        else:
+            if not ((line[0] == '\t') or (line[0] == '#')):
+                subclassName = "unknown"
+                break
+            if (line[1:3] == subclassID[0]):
+                subclassName = line[5:].rstrip()
+                break
+    PCIclass.close()
+    return (className, subclassName)
+
+def readATI(sA):
+    try:
+        if (readROMtext(sA+0x30, sA+0x39) == " 76129552"): # yes it's missing the ending zero, python is mangling it somehow if i read it
+            print("ATI VBIOS detected.")
+            print("Build date: " + readROMtext(sA+0x50, sA+0x60))
+            abOffset = hexStr2int(readROM16(sA+0x48, sA+0x49)[0])
+            if (readROMtext(abOffset+4,abOffset+8) == "ATOM"):
+                print("ATOMBIOS table found.")
+                nameOffset = hexStr2int(readROM16(abOffset+0x10, abOffset+0x11)[0])
+                configOffset = hexStr2int(readROM16(abOffset+0x0c, abOffset+0x0d)[0])
+                print("Name: " + readROMtextTerminated(nameOffset+1, 0x0D))
+                print("Subsys Vendor ID: "+readROM16(abOffset+0x18, abOffset+0x19)[0])
+                print("Subsys ID: "+readROM16(abOffset+0x1A, abOffset+0x1B)[0])
+                #print("Config Filename: " + readROMtextTerminated(configOffset+2, 0x00))
+            else:
+                print("No ATOMBIOS Table found.")
+    except:
+        pass
+
+def readNV(sA):
+    if (readROM16(sA+0x4, sA+0xA, 1) == ['4b37', '3430', '30e9', '4c19']):
+        print("NVidia VBIOS detected.")
+        print("Build date: " + readROMtext(sA+0x38, sA+0x40))
+
+def readSignOn(start, end):
+    i = start
+    while (i < end):
+        #print(hex(i))
+        if (readROM16(i, i+1, 1) == ['0d0a']): # look for \r\n to indicate sign-on text
+            signOnText = readROMtextTerminated(i+2, 0x0)
+            print(signOnText)
+            i = i + len(signOnText)
+          
+        i = i + 1
+
+#####################################################
+# START MAIN ROUTINE
+#####################################################    
+
 # Find start of PCI header structure
 if not (readROM16(0x00, 0x01, 1) == ['55aa']):
-    print("bad PCI signature! Attempting fallbacks...")
-    if (readROM16(0x00, 0x01, 1) == ['4e56']):
-        print("Modern Nvidia ROM detected. Scanning for PCI header...")
-        i = 0
-        while (i < EOFile):
-            if (readROM16(i, i+3, 1) == ['5043', '4952']):
-                print("Found PCIR header at "+hex(i)+"!")
-                hO = i
-                break
-            i = i + 1    
-    else:
-        print("No PCI headers found! Exiting...")
-        exit()
-else:         
-    print("good PCI signature!")
+    print("bad PCI PnP Option ROM signature at 0x0! Attempting fallback scan...")
+    pO = findPnPheader(0)
+    hO = findPCIheader(0)
+    if (hO == -1):
+        print("Exiting...")
+else:
+    pO = 0         
+    print("good PnP signature!")
     prettyOffset = readROM16(0x18, 0x19)
     print("Header Offset at 0x"+prettyOffset[0])
     hO = hexStr2int(prettyOffset[0])
@@ -132,69 +262,36 @@ try:
 except:
     print("Error reading header signature! Exiting...")
     exit()
-print("Text at offset: "+ headerSignature)
 
 if not (headerSignature == "PCIR"):
+    print("Text at offset: "+ headerSignature)
     print("Bad header signature! Exiting...")
     exit()
-
 print("Signature valid!\n")
 
 # Read Vendor and Device IDs
-vendorID = readROM16(hO+VID, hO+VID+1)
-deviceID = readROM16(hO+DID, hO+DID+1)
-
-
-# Parse for Vendor and Device names from PCI ID database
-PCIids = open("pci.ids", 'r')
-searchType = 0
-for line in PCIids:
-    if searchType == 0:
-        if (line[0:4] == vendorID[0]):
-            vendorName = line[6:].rstrip()
-            searchType = 1
-    else:
-        if not ((line[0] == '\t') or (line[0] == '#')):
-            deviceName = "unknown"
-            break
-        if (line[1:5] == deviceID[0]):
-            deviceName = line[7:].rstrip()
-            break
+(vendorID, deviceID, vendorName, deviceName)  = getVendorDevice(hO)
 print("Vendor: [" + vendorID[0] + "] " + vendorName)
 print("Device: [" + deviceID[0] + "] " + deviceName)
 print("\n")
 
-# Read Class and Subclass IDs
-classID = readROM8(hO+CID, hO+CID)
-subclassID = readROM8(hO+SCD, hO+SCD)
-
-# Parse for Class and Subclass names from PCI ID database
-PCIclass = open("pciclasses.ids", 'r')
-searchType = 0
-for line in PCIclass:
-    if searchType == 0:
-        # print(line[2:4])
-        if (line[2:4] == classID[0]):
-            className = line[6:].rstrip()
-            searchType = 1
-    else:
-        if not ((line[0] == '\t') or (line[0] == '#')):
-            subclassName = "unknown"
-            break
-        if (line[1:3] == subclassID[0]):
-            subclassName = line[5:].rstrip()
-            break
+(className, subclassName) = getClassSubclass(hO)
 print("Class Type: " + className)
 print("Subclass Type: " + subclassName)
 
-# Parse human-readable text if requested
+print("\nSearching for vendor-specific structures...")
+readATI(pO)
+readNV(pO)
+
+# Parse human-readable text
 try:
     if (sys.argv[2] == "-t"):            
         print("\n***Parsing for text...***\n")
         print(readROMsaneText(0x00, EOFile-1))
 except:
-    print("\nUse argument -t to if you wish to parse for strings in the file")
+    print("\n***Reading strings in first 500 characters of PCI ROM space***\n")
+    print(readROMsaneText(pO, pO+500))
+    print("\nUse argument -t to if you wish to parse for all strings in the file")
     
 file.close()
-PCIids.close()
-PCIclass.close()
+
