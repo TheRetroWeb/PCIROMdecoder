@@ -1,4 +1,4 @@
-VERSION = "0.3"
+VERSION = "0.4"
 
 #######################################
 # The Retro Web PCI ROM Decoder
@@ -184,6 +184,11 @@ def getVendorDevice(hO):
         deviceName = "unknown"
     return (vendorID, deviceID, vendorName, deviceName)        
 
+
+######################################
+# Lookup Class and Subclass ID in    #
+# PCI ID database                    #
+###################################### 
 def getClassSubclass(hO):
     # Read Class and Subclass IDs
     classID = readROM8(hO+CID, hO+CID)
@@ -208,6 +213,10 @@ def getClassSubclass(hO):
     PCIclass.close()
     return (className, subclassName)
 
+######################################
+# Detect if ATI/AMD VBIOS, and read  #
+# data from ATOMBIOS if recognized   #
+###################################### 
 def readATI(sA):
     try:
         if (readROMtext(sA+0x30, sA+0x39) == " 76129552"): # yes it's missing the ending zero, python is mangling it somehow if i read it
@@ -227,22 +236,24 @@ def readATI(sA):
     except:
         pass
 
-def readNV(sA):
+######################################
+# Detect if Nvidia VBIOS, and read   #
+# data headers if recognized         #
+###################################### 
+def readNV(sA, hO):
     if (readROM16(sA+0x4, sA+0xA, 1) == ['4b37', '3430', '30e9', '4c19']):
         print("NVidia VBIOS detected.")
         print("Build date: " + readROMtext(sA+0x38, sA+0x40))
+        if (readROM16(hO+0x20, hO+0x22, 1) == ['4e50', '4445']): # modern Nvidia, "NPDE" magic
+            print("Subsys Vendor ID: "+readROM16(hO+0x29, hO+0x31)[0])
+            print("Subsys ID: "+readROM16(hO+0x32, hO+0x33)[0])
+        else: # old Nvidia
+            print("Subsys Vendor ID: "+readROM16(sA+0x54, sA+0x55)[0])
+            print("Subsys ID: "+readROM16(sA+0x56, sA+0x57)[0])           
 
-def readSignOn(start, end):
-    i = start
-    while (i < end):
-        #print(hex(i))
-        if (readROM16(i, i+1, 1) == ['0d0a']): # look for \r\n to indicate sign-on text
-            signOnText = readROMtextTerminated(i+2, 0x0)
-            print(signOnText)
-            i = i + len(signOnText)
-          
-        i = i + 1
-
+######################################
+# Main ROM decoder function          #
+###################################### 
 def decodeROM(startAddr):
     # Find start of PCI header structure
     if not (readROM16(startAddr, startAddr+1, 1) == ['55aa']):
@@ -289,7 +300,7 @@ def decodeROM(startAddr):
 
     print("\nSearching for vendor-specific structures...")
     readATI(pO)
-    readNV(pO)
+    readNV(pO, hO)
 
     if (len(sys.argv) == 2):
             print("\n***Reading strings in first 500 characters of PCI ROM space***\n")
@@ -311,7 +322,7 @@ def decodeROM(startAddr):
 
 
 #####################################################
-# START MAIN ROUTINE
+# START EXECUTION
 #####################################################    
 
 imageCount = 1
