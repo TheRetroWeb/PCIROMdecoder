@@ -162,6 +162,8 @@ def getVendorDevice(hO):
     # Parse for Vendor and Device names from PCI ID database
     vendorID = readROM16(hO+VID, hO+VID+1)
     deviceID = readROM16(hO+DID, hO+DID+1)
+    vendorName = ""
+    deviceName = ""
     PCIids = open("pci.ids", 'r')
     searchType = 0
     for line in PCIids:
@@ -177,6 +179,9 @@ def getVendorDevice(hO):
                 deviceName = line[7:].rstrip()
                 break
     PCIids.close()
+    if (vendorName == ""):
+        vendorName = "unknown"
+        deviceName = "unknown"
     return (vendorID, deviceID, vendorName, deviceName)        
 
 def getClassSubclass(hO):
@@ -302,7 +307,7 @@ def decodeROM(startAddr):
         imageBytes = (hexStr2int(imageBlocks) * 512)
         print("Jumping "+ str(imageBytes) + " bytes.")
         print("********************************************\n")
-        return (startAddr+imageBytes)
+        return (pO+imageBytes)
 
 
 #####################################################
