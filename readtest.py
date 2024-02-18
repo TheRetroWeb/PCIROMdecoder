@@ -1,4 +1,4 @@
-VERSION = "0.2"
+VERSION = "0.3"
 
 #######################################
 # The Retro Web PCI ROM Decoder
@@ -210,10 +210,10 @@ def readATI(sA):
             print("Build date: " + readROMtext(sA+0x50, sA+0x60))
             abOffset = hexStr2int(readROM16(sA+0x48, sA+0x49)[0])
             if (readROMtext(abOffset+4,abOffset+8) == "ATOM"):
-                print("ATOMBIOS table found.")
+                print("\nATOMBIOS table found.")
                 nameOffset = hexStr2int(readROM16(abOffset+0x10, abOffset+0x11)[0])
                 configOffset = hexStr2int(readROM16(abOffset+0x0c, abOffset+0x0d)[0])
-                print("Name: " + readROMtextTerminated(nameOffset+1, 0x0D))
+                print("Name: " + readROMtextTerminated(nameOffset+1, 0x0D).lstrip())
                 print("Subsys Vendor ID: "+readROM16(abOffset+0x18, abOffset+0x19)[0])
                 print("Subsys ID: "+readROM16(abOffset+0x1A, abOffset+0x1B)[0])
                 #print("Config Filename: " + readROMtextTerminated(configOffset+2, 0x00))
@@ -238,50 +238,84 @@ def readSignOn(start, end):
           
         i = i + 1
 
+def decodeROM(startAddr):
+    # Find start of PCI header structure
+    if not (readROM16(startAddr, startAddr+1, 1) == ['55aa']):
+        print("bad PCI PnP Option ROM signature at "+hex(startAddr)+"! Attempting fallback scan...")
+        pO = findPnPheader(startAddr)
+        hO = findPCIheader(startAddr)
+        if (hO == -1):
+            print("Exiting...")
+    else:
+        pO = startAddr         
+        print("good PnP signature!")
+        prettyOffset = readROM16(startAddr + 0x18, startAddr + 0x19)
+        hO = startAddr + hexStr2int(prettyOffset[0])
+        print("Header Offset at "+ str(hex(hO)))
+
+    # Confirm valid PCI header    
+    try:
+        headerSignature = readROMtext(hO, hO+4)
+    except:
+        print("Error reading header signature! Exiting...")
+        exit()
+
+    if not (headerSignature == "PCIR"):
+        print("Text at offset: "+ headerSignature)
+        print("Bad header signature! Exiting...")
+        exit()
+    print("Signature valid!\n")
+
+    # Read Vendor and Device IDs
+    (vendorID, deviceID, vendorName, deviceName)  = getVendorDevice(hO)
+    print("Vendor: [" + vendorID[0] + "] " + vendorName)
+    print("Device: [" + deviceID[0] + "] " + deviceName)
+    print("\n")
+
+    (className, subclassName) = getClassSubclass(hO)
+    print("Class Type: " + className)
+    print("Subclass Type: " + subclassName)
+
+    codeType = readROM8(hO+0x14, hO+0x14)[0]
+    if codeType == "00":
+        print("Code Type: x86 (BIOS)")
+    elif codeType == "03":
+        print("Code Type: x86 (UEFI)")
+
+    print("\nSearching for vendor-specific structures...")
+    readATI(pO)
+    readNV(pO)
+
+    if (len(sys.argv) == 2):
+            print("\n***Reading strings in first 500 characters of PCI ROM space***\n")
+            print(readROMsaneText(pO, pO+500))
+            print("\nUse argument -t to if you wish to parse for all strings in the file")
+
+    
+    if (readROM8(hO+0x15, hO+0x15) == ['80']):
+        print("\nLast PCI image in ROM.")
+        return -1
+    else:
+        print("\nContinuing to next image in ROM...")
+        imageBlocks = readROM16(hO+0x10, hO+0x11)[0]
+        print("Current image is " + imageBlocks + " blocks long.")
+        imageBytes = (hexStr2int(imageBlocks) * 512)
+        print("Jumping "+ str(imageBytes) + " bytes.")
+        print("********************************************\n")
+        return (startAddr+imageBytes)
+
+
 #####################################################
 # START MAIN ROUTINE
 #####################################################    
 
-# Find start of PCI header structure
-if not (readROM16(0x00, 0x01, 1) == ['55aa']):
-    print("bad PCI PnP Option ROM signature at 0x0! Attempting fallback scan...")
-    pO = findPnPheader(0)
-    hO = findPCIheader(0)
-    if (hO == -1):
-        print("Exiting...")
-else:
-    pO = 0         
-    print("good PnP signature!")
-    prettyOffset = readROM16(0x18, 0x19)
-    print("Header Offset at 0x"+prettyOffset[0])
-    hO = hexStr2int(prettyOffset[0])
+imageCount = 1
+nextPCIbase = 0
+while not (nextPCIbase == -1):
+    print("Image #"+str(imageCount)+":\n")
+    nextPCIbase = decodeROM(nextPCIbase)
+    imageCount = imageCount + 1
 
-# Confirm valid PCI header    
-try:
-    headerSignature = readROMtext(hO, hO+4)
-except:
-    print("Error reading header signature! Exiting...")
-    exit()
-
-if not (headerSignature == "PCIR"):
-    print("Text at offset: "+ headerSignature)
-    print("Bad header signature! Exiting...")
-    exit()
-print("Signature valid!\n")
-
-# Read Vendor and Device IDs
-(vendorID, deviceID, vendorName, deviceName)  = getVendorDevice(hO)
-print("Vendor: [" + vendorID[0] + "] " + vendorName)
-print("Device: [" + deviceID[0] + "] " + deviceName)
-print("\n")
-
-(className, subclassName) = getClassSubclass(hO)
-print("Class Type: " + className)
-print("Subclass Type: " + subclassName)
-
-print("\nSearching for vendor-specific structures...")
-readATI(pO)
-readNV(pO)
 
 # Parse human-readable text
 try:
@@ -289,9 +323,7 @@ try:
         print("\n***Parsing for text...***\n")
         print(readROMsaneText(0x00, EOFile-1))
 except:
-    print("\n***Reading strings in first 500 characters of PCI ROM space***\n")
-    print(readROMsaneText(pO, pO+500))
-    print("\nUse argument -t to if you wish to parse for all strings in the file")
+    pass
     
 file.close()
 
