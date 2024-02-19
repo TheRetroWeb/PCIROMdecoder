@@ -184,6 +184,18 @@ def getVendorDevice(hO):
         deviceName = "unknown"
     return (vendorID, deviceID, vendorName, deviceName)        
 
+######################################
+# Lookup Subsystem VID+DID in        #
+# PCI ID database                    #
+###################################### 
+def getSubsys(subVendor, subDevice):
+    PCIids = open("pci.ids", 'r')
+    subDeviceName = -1
+    for line in PCIids:
+        if (line[2:11] == (subVendor + " " + subDevice)):
+            subDeviceName = line[13:].rstrip() 
+    PCIids.close()
+    return subDeviceName
 
 ######################################
 # Lookup Class and Subclass ID in    #
@@ -227,10 +239,14 @@ def readATI(sA):
                 print("\nATOMBIOS table found.")
                 nameOffset = hexStr2int(readROM16(abOffset+0x10, abOffset+0x11)[0])
                 configOffset = hexStr2int(readROM16(abOffset+0x0c, abOffset+0x0d)[0])
+                subSysVendor = readROM16(abOffset+0x18, abOffset+0x19)[0]
+                subSysDevice = readROM16(abOffset+0x1A, abOffset+0x1B)[0]
                 print("Name: " + readROMtextTerminated(nameOffset+1, 0x0D).lstrip())
-                print("Subsys Vendor ID: "+readROM16(abOffset+0x18, abOffset+0x19)[0])
-                print("Subsys ID: "+readROM16(abOffset+0x1A, abOffset+0x1B)[0])
-                #print("Config Filename: " + readROMtextTerminated(configOffset+2, 0x00))
+                print("Subsys Vendor ID: " + subSysVendor)
+                print("Subsys ID: " + subSysDevice)
+                subSysName = getSubsys(subSysVendor, subSysDevice)
+                if not (subSysName == -1):
+                    print("Subdevice identified: " + subSysName)
             else:
                 print("No ATOMBIOS Table found.")
     except:
@@ -241,15 +257,25 @@ def readATI(sA):
 # data headers if recognized         #
 ###################################### 
 def readNV(sA, hO):
-    if (readROM16(sA+0x4, sA+0xA, 1) == ['4b37', '3430', '30e9', '4c19']):
+    if (readROM16(sA+0x4, sA+0xA, 1) == ['4b37', '3430', '30e9', '4c19']): # K74000L with 0x19 end byte
         print("NVidia VBIOS detected.")
         print("Build date: " + readROMtext(sA+0x38, sA+0x40))
+        subSysDetected = 0
         if (readROM16(hO+0x20, hO+0x22, 1) == ['4e50', '4445']): # modern Nvidia, "NPDE" magic
-            print("Subsys Vendor ID: "+readROM16(hO+0x29, hO+0x31)[0])
-            print("Subsys ID: "+readROM16(hO+0x32, hO+0x33)[0])
+            subSysVendor = readROM16(hO+0x29, hO+0x31)[0]
+            subSysDevice = readROM16(hO+0x32, hO+0x33)[0]          
+            subSysDetected = 1
         else: # old Nvidia
-            print("Subsys Vendor ID: "+readROM16(sA+0x54, sA+0x55)[0])
-            print("Subsys ID: "+readROM16(sA+0x56, sA+0x57)[0])           
+            subSysVendor = readROM16(sA+0x54, sA+0x55)[0]
+            subSysDevice = readROM16(sA+0x56, sA+0x57)[0]
+            subSysDetected = 1
+        if (subSysDetected == 1):
+            print("Subsys Vendor ID: "+ subSysVendor)
+            print("Subsys ID: "+ subSysDevice)
+            subSysName = getSubsys(subSysVendor, subSysDevice)
+            if not (subSysName == -1):
+                print("Subdevice identified: " + subSysName)
+
 
 ######################################
 # Main ROM decoder function          #
