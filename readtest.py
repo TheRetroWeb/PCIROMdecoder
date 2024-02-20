@@ -1,4 +1,4 @@
-VERSION = "0.7"
+VERSION = "0.71"
 
 #######################################
 # The Retro Web PCI ROM Decoder
@@ -350,7 +350,7 @@ def decodeROM(startAddr):
             print("\nUse argument -t to if you wish to parse for all strings in the file")
 
     
-    if (readROM8(hO+0x15, hO+0x15) == ['80']):
+    if ((readROM8(hO+0x15, hO+0x15) == ['80']) or (hexStr2int(readROM16(hO+0x10, hO+0x11)[0]) == 0)):
         print("\nLast PCI image in ROM.")
         return -1
     else:
