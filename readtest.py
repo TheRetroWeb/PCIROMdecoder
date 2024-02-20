@@ -1,4 +1,4 @@
-VERSION = "0.6"
+VERSION = "0.7"
 
 #######################################
 # The Retro Web PCI ROM Decoder
@@ -270,10 +270,13 @@ def readNV(sA, hO):
         print("NVidia VBIOS detected.")
         print("Build date: " + readROMtext(sA+0x38, sA+0x40))
         subSysDetected = 0
-        if (readROM16(hO+0x20, hO+0x22, 1) == ['4e50', '4445']): # modern Nvidia, "NPDE" magic
-            subSysVendor = readROM16(hO+0x29, hO+0x31)[0]
-            subSysDevice = readROM16(hO+0x32, hO+0x33)[0]          
-            subSysDetected = 1
+        # this next line is awful but so is Nvidia
+        # modern Nvidia, "NPDE" magic, but have dumb edgecase for Kepler and Maxwell which don't have the subsys data here...
+        if (readROM16(hO+0x20, hO+0x22, 1) == ['4e50', '4445']) and \
+            (not ((readROM16(hO+0x29, hO+0x31)[0] == 'b8ff') and (readROM16(hO+0x32, hO+0x33)[0] == '4942'))):
+                subSysVendor = readROM16(hO+0x29, hO+0x31)[0]
+                subSysDevice = readROM16(hO+0x32, hO+0x33)[0]          
+                subSysDetected = 1
         else: # old Nvidia
             subSysVendor = readROM16(sA+0x54, sA+0x55)[0]
             subSysDevice = readROM16(sA+0x56, sA+0x57)[0]
@@ -285,6 +288,9 @@ def readNV(sA, hO):
             if not (subSysName == -1):
                 print("Subdevice identified: " + subSysName)
 
+def readEFI(pO):
+    if (readROM16(pO+0x4, pO+0x5) == ['0ef1']):
+        print("EFI ROM detected (further data dump not yet implemented.)")
 
 ######################################
 # Main ROM decoder function          #
@@ -333,9 +339,10 @@ def decodeROM(startAddr):
     elif codeType == "03":
         print("Code Type: x86 (UEFI)")
 
-    print("\nSearching for vendor-specific structures...")
+    print("\nSearching for additional structures...")
     readATI(pO)
     readNV(pO, hO)
+    readEFI(pO)
 
     if (len(sys.argv) == 2):
             print("\n***Reading strings in first 500 characters of PCI ROM space***\n")
