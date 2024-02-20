@@ -1,4 +1,4 @@
-VERSION = "0.4"
+VERSION = "0.6"
 
 #######################################
 # The Retro Web PCI ROM Decoder
@@ -9,6 +9,7 @@ VERSION = "0.4"
 import struct
 import sys
 import os
+import glob
 
 print("\n*****************************************************************")
 print("The Retro Web PCI ROM Decoder (local test)")
@@ -20,11 +21,16 @@ print("*****************************************************************\n")
 if len(sys.argv) == 1:
    print(sys.argv[0] + " <ROM file>")
    print("Append -t to parse for strings")
+   print("")
    exit()
 
-file = open(sys.argv[1], "rb")
-rawRead = file.read()
-EOFile = os.path.getsize(sys.argv[1])
+files = []
+if (os.path.isdir(sys.argv[1])):
+    sys.argv[1] = sys.argv[1] + "**\*.*"
+if ("*" in sys.argv[1]):
+    files = glob.glob(sys.argv[1], recursive=True)
+else:    
+    files.append(sys.argv[1])
 
 # header component internal offsets
 VID = 4 # vendor ID
@@ -205,14 +211,14 @@ def getClassSubclass(hO):
     # Read Class and Subclass IDs
     classID = readROM8(hO+CID, hO+CID)
     subclassID = readROM8(hO+SCD, hO+SCD)
-
+    className = ""
     # Parse for Class and Subclass names from PCI ID database
     PCIclass = open("pciclasses.ids", 'r')
     searchType = 0
     for line in PCIclass:
         if searchType == 0:
             # print(line[2:4])
-            if (line[2:4] == classID[0]):
+            if (line[0:4] == "C " + classID[0]):
                 className = line[6:].rstrip()
                 searchType = 1
         else:
@@ -222,8 +228,11 @@ def getClassSubclass(hO):
             if (line[1:3] == subclassID[0]):
                 subclassName = line[5:].rstrip()
                 break
+    if (className == ""):
+        className = "unknown"
+        subclassName = "unknown"
     PCIclass.close()
-    return (className, subclassName)
+    return (className, subclassName, classID, subclassID)
 
 ######################################
 # Detect if ATI/AMD VBIOS, and read  #
@@ -287,7 +296,7 @@ def decodeROM(startAddr):
         pO = findPnPheader(startAddr)
         hO = findPCIheader(startAddr)
         if (hO == -1):
-            print("Exiting...")
+            return -1
     else:
         pO = startAddr         
         print("good PnP signature!")
@@ -300,12 +309,12 @@ def decodeROM(startAddr):
         headerSignature = readROMtext(hO, hO+4)
     except:
         print("Error reading header signature! Exiting...")
-        exit()
+        return -1
 
     if not (headerSignature == "PCIR"):
         print("Text at offset: "+ headerSignature)
         print("Bad header signature! Exiting...")
-        exit()
+        return -1
     print("Signature valid!\n")
 
     # Read Vendor and Device IDs
@@ -314,9 +323,9 @@ def decodeROM(startAddr):
     print("Device: [" + deviceID[0] + "] " + deviceName)
     print("\n")
 
-    (className, subclassName) = getClassSubclass(hO)
-    print("Class Type: " + className)
-    print("Subclass Type: " + subclassName)
+    (className, subclassName, classID, subclassID) = getClassSubclass(hO)
+    print("Class Type: [" + str(classID[0]) + "] " + className)
+    print("Subclass Type: [" + str(subclassID[0]) + "] " + subclassName)
 
     codeType = readROM8(hO+0x14, hO+0x14)[0]
     if codeType == "00":
@@ -346,26 +355,41 @@ def decodeROM(startAddr):
         print("********************************************\n")
         return (pO+imageBytes)
 
+def fileExtCheck(file):
+    allowedExt = ['.rom', '.ROM', '.bin', '.BIN']
+    for i in allowedExt:
+        if i in file[len(file)-5:]: return 1
+    return 0
+
 
 #####################################################
 # START EXECUTION
 #####################################################    
 
-imageCount = 1
-nextPCIbase = 0
-while not (nextPCIbase == -1):
-    print("Image #"+str(imageCount)+":\n")
-    nextPCIbase = decodeROM(nextPCIbase)
-    imageCount = imageCount + 1
+for file in files:
+    if ((os.path.isfile(file)) and fileExtCheck(file)):
+        currFile = open(file, "rb")
+        rawRead = currFile.read()
+        EOFile = os.path.getsize(file)
+        print("***************************************************************")
+        print("ROM File: "+ file)
+        print("***************************************************************")    
+        imageCount = 1
+        nextPCIbase = 0
+        while not (nextPCIbase == -1):
+            print("Image #"+str(imageCount)+":\n")
+            nextPCIbase = decodeROM(nextPCIbase)
+            imageCount = imageCount + 1
 
+        # Parse human-readable text
+        try:
+            if (sys.argv[2] == "-t"):            
+                print("\n***Parsing for text...***\n")
+                print(readROMsaneText(0x00, EOFile-1))
+        except:
+            pass
+        currFile.close()
 
-# Parse human-readable text
-try:
-    if (sys.argv[2] == "-t"):            
-        print("\n***Parsing for text...***\n")
-        print(readROMsaneText(0x00, EOFile-1))
-except:
-    pass
-    
-file.close()
-
+print("\n*****************************************************************")
+print("ROM decoding complete.")
+print("*****************************************************************")
