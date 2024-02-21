@@ -224,7 +224,6 @@ def getClassSubclass(hO):
                 searchType = 2
         else: # search for programming interface
            if not (line[0:2] == '\t\t'): # run out of programming interfaces
-                print("broke")
                 progInfName = -1
                 break
            if (line[2:4] == progInfID[0]):
