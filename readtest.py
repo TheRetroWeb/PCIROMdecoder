@@ -1,4 +1,4 @@
-VERSION = "0.8"
+VERSION = "0.81"
 
 #######################################
 # The Retro Web PCI ROM Decoder
@@ -287,7 +287,7 @@ def readNV(sA, hO):
             print("Subsys Vendor ID: "+ subSysVendor)
             print("Subsys ID: "+ subSysDevice)
             subSysName = getSubsys(subSysVendor, subSysDevice)
-            if not (subSysName == -1):
+            if not ((subSysName == -1) or (subSysName == "GLoria XL")): # no, an Nvidia 0000/0000 subsys is not a 3DLabs card
                 print("Subdevice identified: " + subSysName)
 
 ######################################
