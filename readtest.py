@@ -1,4 +1,4 @@
-VERSION = "0.81"
+VERSION = "rc1"
 
 #######################################
 # The Retro Web PCI ROM Decoder
@@ -167,7 +167,7 @@ def getVendorDevice(hO):
     deviceName = ""
     PCIids = open("pci.ids", 'r')
     searchType = 0
-    for line in PCIids:
+    for lineNum, line in enumerate(PCIids, start = 1):
         if searchType == 0: # searching for vendor ID
             if (line[0:4] == vendorID[0]):
                 vendorName = line[6:].rstrip()
@@ -175,26 +175,33 @@ def getVendorDevice(hO):
         else: # searching for device ID
             if not ((line[0] == '\t') or (line[0] == '#')): # run out of vendor's devices
                 deviceName = "unknown"
+                deviceLine = -1
                 break
             if (line[1:5] == deviceID[0]):
                 deviceName = line[7:].rstrip()
+                deviceLine = lineNum
                 break
     PCIids.close()
     if (vendorName == ""): # failsafe if vendor not in DB (wtf?)
         vendorName = "unknown"
         deviceName = "unknown"
-    return (vendorID, deviceID, vendorName, deviceName)        
+        deviceLine = -1
+    return (vendorID, deviceID, vendorName, deviceName, deviceLine)        
 
 ######################################
 # Lookup Subsystem VID+DID in        #
 # PCI ID database                    #
 ###################################### 
-def getSubsys(subVendor, subDevice):
+def getSubsys(subVendor, subDevice, deviceLine):
     PCIids = open("pci.ids", 'r')
     subDeviceName = -1
-    for line in PCIids:
-        if (line[2:11] == (subVendor + " " + subDevice)):
-            subDeviceName = line[13:].rstrip() 
+    for lineNum, line in enumerate(PCIids, start=1):
+        if (lineNum <= deviceLine):
+            pass
+        elif (line[2:11] == (subVendor + " " + subDevice)):
+            subDeviceName = line[13:].rstrip()
+        elif not (line[0:2] == '\t\t'):
+            break
     PCIids.close()
     return subDeviceName
 
@@ -240,7 +247,7 @@ def getClassSubclass(hO):
 # Detect if ATI/AMD VBIOS, and read  #
 # data from ATOMBIOS if recognized   #
 ###################################### 
-def readATI(sA):
+def readATI(sA, deviceLine):
     try:
         if (readROMtext(sA+0x30, sA+0x39) == " 76129552"): # missing the ending zero, python is being strange
             print("ATI VBIOS detected.")
@@ -255,7 +262,7 @@ def readATI(sA):
                 print("Name: " + readROMtextTerminated(nameOffset+1, 0x0D).lstrip())
                 print("Subsys Vendor ID: " + subSysVendor)
                 print("Subsys ID: " + subSysDevice)
-                subSysName = getSubsys(subSysVendor, subSysDevice)
+                subSysName = getSubsys(subSysVendor, subSysDevice, deviceLine)
                 if not (subSysName == -1):
                     print("Subdevice identified: " + subSysName)
             else:
@@ -267,7 +274,7 @@ def readATI(sA):
 # Detect if Nvidia VBIOS, and read   #
 # data headers if recognized         #
 ###################################### 
-def readNV(sA, hO):
+def readNV(sA, hO, deviceLine):
     if (readROM16(sA+0x4, sA+0xA, 1) == ['4b37', '3430', '30e9', '4c19']): # K74000L with 0x19 end byte
         print("NVidia VBIOS detected.")
         print("Build date: " + readROMtext(sA+0x38, sA+0x40))
@@ -286,8 +293,8 @@ def readNV(sA, hO):
         if (subSysDetected == 1):
             print("Subsys Vendor ID: "+ subSysVendor)
             print("Subsys ID: "+ subSysDevice)
-            subSysName = getSubsys(subSysVendor, subSysDevice)
-            if not ((subSysName == -1) or (subSysName == "GLoria XL")): # no, an Nvidia 0000/0000 subsys is not a 3DLabs card
+            subSysName = getSubsys(subSysVendor, subSysDevice, deviceLine)
+            if not (subSysName == -1):
                 print("Subdevice identified: " + subSysName)
 
 ######################################
@@ -298,8 +305,8 @@ def readEFI(pO):
     if (readROM16(pO+0x4, pO+0x5) == ['0ef1']):
         print("EFI ROM detected.")
         machType = readROM16(pO+0xa, pO+0xb)
-        knownMach = ['0x14c', '0200', '0ebc', '8664', '01c2', 'aa64']
-        machNames = ['x86', 'Itanium', 'EFI Byte Code', 'x86-64', 'ARM32', 'ARM64']
+        knownMach = ['0x14c', '0200', '0ebc', '8664', '01c0', '01c2', '01c4', 'aa64']
+        machNames = ['x86', 'Itanium', 'EFI Byte Code', 'x86-64', 'ARM32', 'ARM32+THUMB', 'ARMv7', 'ARM64']
         for i in knownMach:
             machIndex = knownMach.index(i)
             if (machType[0] == knownMach[machIndex]):
@@ -309,9 +316,9 @@ def readEFI(pO):
 # Main ROM decoder function          #
 ###################################### 
 def decodeROM(startAddr):
-    # Find start of PCI header structure
+    # Find start of PnP header structure
     if not (readROM16(startAddr, startAddr+1, 1) == ['55aa']):
-        print("bad PCI PnP Option ROM signature at "+hex(startAddr)+"! Attempting fallback scan...")
+        print("bad PnP Option ROM signature at "+hex(startAddr)+"! Attempting fallback scan...")
         pO = findPnPheader(startAddr)
         hO = findPCIheader(startAddr)
         if (hO == -1):
@@ -349,7 +356,7 @@ def decodeROM(startAddr):
     print("Signature valid!\n")
 
     # Print Vendor and Device IDs
-    (vendorID, deviceID, vendorName, deviceName)  = getVendorDevice(hO)
+    (vendorID, deviceID, vendorName, deviceName, deviceLine)  = getVendorDevice(hO)
     print("Vendor: [" + vendorID[0] + "] " + vendorName)
     print("Device: [" + deviceID[0] + "] " + deviceName)
     print("\n")
@@ -362,15 +369,20 @@ def decodeROM(startAddr):
         print("Programming Interface Type: [" + str(progInfID[0]) + "] " + progInfName)
 
     codeType = readROM8(hO+0x14, hO+0x14)[0]
+    
     if codeType == "00":
         print("Code Type: x86 (BIOS)")
+    elif codeType == "01":
+        print("Code Type: Open Firmware")
+    elif codeType == "02":
+        print("Code Type: HP PA-RISC")
     elif codeType == "03":
         print("Code Type: x86 (UEFI)")
     # extend if-elif once i have juicy non-x86 ROMs to test
 
     print("\nSearching for additional structures...")
-    readATI(pO)
-    readNV(pO, hO)
+    readATI(pO, deviceLine)
+    readNV(pO, hO, deviceLine)
     readEFI(pO)
 
     if (len(sys.argv) == 2):
