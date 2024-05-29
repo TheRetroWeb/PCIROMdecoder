@@ -339,6 +339,7 @@ def decodeROM(startAddr):
         if (hO == -1):
             print("This may be a ROM for a non-PCI device, or a bad dump.")
             return -1
+        headerSignature = readROMtext(hO, hO+4)
 
     # Check if PCI header valid
     if not (headerSignature == "PCIR"):
