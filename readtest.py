@@ -1,4 +1,4 @@
-VERSION = "rc1"
+VERSION = "1.0"
 
 #######################################
 # The Retro Web PCI ROM Decoder
@@ -340,6 +340,8 @@ def decodeROM(startAddr):
             print("This may be a ROM for a non-PCI device, or a bad dump.")
             return -1
         headerSignature = readROMtext(hO, hO+4)
+        print("***WARNING: PCI Data Structure at incorrect address!***")
+        print("*** This ROM may be corrupted. Continuing anyway... ***\n")
 
     # Check if PCI header valid
     if not (headerSignature == "PCIR"):
