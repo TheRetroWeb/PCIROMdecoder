@@ -1,4 +1,4 @@
-VERSION = "1.0"
+VERSION = "1.1"
 
 #######################################
 # The Retro Web PCI ROM Decoder
@@ -252,14 +252,14 @@ def readATI(sA, deviceLine):
         if (readROMtext(sA+0x30, sA+0x39) == " 76129552"): # missing the ending zero, python is being strange
             print("ATI VBIOS detected.")
             print("Build date: " + readROMtext(sA+0x50, sA+0x60))
-            abOffset = hexStr2int(readROM16(sA+0x48, sA+0x49)[0])
+            abOffset = sA + hexStr2int(readROM16(sA+0x48, sA+0x49)[0])
             if (readROMtext(abOffset+4,abOffset+8) == "ATOM"):
                 print("\nATOMBIOS table found.")
                 nameOffset = hexStr2int(readROM16(abOffset+0x10, abOffset+0x11)[0])
                 configOffset = hexStr2int(readROM16(abOffset+0x0c, abOffset+0x0d)[0])
                 subSysVendor = readROM16(abOffset+0x18, abOffset+0x19)[0]
                 subSysDevice = readROM16(abOffset+0x1A, abOffset+0x1B)[0]
-                print("Name: " + readROMtextTerminated(nameOffset+1, 0x0D).lstrip())
+                print("Name: " + readROMtextTerminated(sA+nameOffset+1, 0x0D).lstrip())
                 print("Subsys Vendor ID: " + subSysVendor)
                 print("Subsys ID: " + subSysDevice)
                 subSysName = getSubsys(subSysVendor, subSysDevice, deviceLine)
